@@ -16,7 +16,7 @@ const Navbar = ({ setAuthToken }) => {
     <nav className="bg-gradient-to-r from-blue-400 to-indigo-700 shadow-sm px-6 py-4 flex items-center justify-between">
       <div className="flex items-center">
         <FiBook className="text-2xl text-black mr-2" />
-        <span className="text-xl font-bold text-black">E-Learning Portal</span>
+        <span className="text-xl font-bold text-black">MindScapes</span>
       </div>
       
       <button

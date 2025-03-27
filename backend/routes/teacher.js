@@ -45,6 +45,16 @@ const noteStorage = multer.diskStorage({
 });
 const noteUpload = multer({ storage: noteStorage });
 
+// Get teacher information
+router.get('/info', verifyToken, isTeacher, (req, res) => {
+  const teacherId = req.user.id;
+  db.get('SELECT id, username, name FROM users WHERE id = ?', [teacherId], (err, teacher) => {
+    if (err) return res.status(500).json({ error: 'Error fetching teacher information' });
+    if (!teacher) return res.status(404).json({ error: 'Teacher not found' });
+    res.json({ name: teacher.name });
+  });
+});
+
 // Get courses for the logged‑in teacher
 router.get('/courses', verifyToken, isTeacher, (req, res) => {
   const teacherId = req.user.id;
@@ -117,6 +127,72 @@ router.get('/courses/:courseId/students', verifyToken, isTeacher, (req, res) => 
     if (err) return res.status(500).json({ error: 'Error fetching students' });
     res.json({ students });
   });
+});
+
+// Get enrollment requests for teacher's courses
+router.get('/enrollment-requests', verifyToken, isTeacher, (req, res) => {
+  const teacherId = req.user.id;
+  db.all(
+    `SELECT er.*, c.title as courseTitle, u.name as studentName 
+     FROM enrollment_requests er
+     JOIN courses c ON er.course_id = c.id
+     JOIN users u ON er.student_id = u.id
+     WHERE c.teacher_id = ?
+     ORDER BY er.request_date DESC`,
+    [teacherId],
+    (err, requests) => {
+      if (err) return res.status(500).json({ error: 'Error fetching enrollment requests' });
+      res.json({ requests });
+    }
+  );
+});
+
+// Handle enrollment request (approve/reject)
+router.post('/enrollment-requests/:requestId', verifyToken, isTeacher, (req, res) => {
+  const requestId = req.params.requestId;
+  const { status } = req.body;
+  
+  if (!['approved', 'rejected'].includes(status)) {
+    return res.status(400).json({ error: 'Invalid status' });
+  }
+  
+  // First verify the request belongs to the teacher's course
+  db.get(
+    `SELECT er.* FROM enrollment_requests er
+     JOIN courses c ON er.course_id = c.id
+     WHERE er.id = ? AND c.teacher_id = ? AND er.status = ?`,
+    [requestId, req.user.id, 'pending'],
+    (err, request) => {
+      if (err || !request) {
+        return res.status(404).json({ error: 'Request not found or already processed' });
+      }
+      
+      const responseDate = new Date().toISOString();
+      
+      // Update request status
+      db.run(
+        'UPDATE enrollment_requests SET status = ?, response_date = ? WHERE id = ?',
+        [status, responseDate, requestId],
+        function (err) {
+          if (err) return res.status(500).json({ error: 'Error updating request status' });
+          
+          // If approved, add student to the course
+          if (status === 'approved') {
+            db.run(
+              'INSERT INTO student_courses (student_id, course_id, streak, last_watch_date) VALUES (?, ?, 0, NULL)',
+              [request.student_id, request.course_id],
+              function (err) {
+                if (err) return res.status(500).json({ error: 'Error enrolling student' });
+                res.json({ message: 'Request processed successfully' });
+              }
+            );
+          } else {
+            res.json({ message: 'Request processed successfully' });
+          }
+        }
+      );
+    }
+  );
 });
 
 module.exports = router;
